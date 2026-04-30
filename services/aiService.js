@@ -29,11 +29,49 @@ class AIService {
       // 1. Fetch file from GridFS as buffer
       const buffer = await this._getFileBuffer(bucket, filename);
       
-      // 2. Prepare multipart form data
+      // If using Hugging Face Spaces Gradio interface
+      if (this.aiModelUrl.includes('hf.space')) {
+        try {
+          const { Client } = await import('@gradio/client');
+          // Extract workspace name from URL (e.g. roshikk-khivision-accident-detector.hf.space -> roshikk/khivision-accident-detector)
+          // Actually, we can just connect to the URL directly if we format it right, or hardcode the space name
+          const spaceName = "roshikk/khivision-accident-detector"; 
+          const client = await Client.connect(spaceName);
+          
+          const blob = new Blob([buffer], { type: 'image/jpeg' });
+          const response = await client.predict("/predict_accident", { image: blob });
+          
+          // Gradio returns string: "Status: ACCIDENT\nConfidence Score: 85.00%"
+          const resultText = response.data[1] || "";
+          
+          let score = 0;
+          let status = 'UNKNOWN';
+          
+          const statusMatch = resultText.match(/Status:\s*([^\n]+)/);
+          if (statusMatch) status = statusMatch[1].trim();
+          
+          const scoreMatch = resultText.match(/Confidence Score:\s*([\d.]+)/);
+          if (scoreMatch) score = parseFloat(scoreMatch[1]);
+
+          console.log(`✅ AI: Analysis complete for ${filename}. Score: ${score}`);
+          
+          return {
+            success: true,
+            score: score,
+            status: status,
+            details: resultText
+          };
+        } catch (gradioErr) {
+          console.error("Gradio API Error:", gradioErr);
+          throw gradioErr;
+        }
+      }
+
+      // 2. Prepare multipart form data (for local Flask/FastAPI backend)
       const form = new FormData();
       form.append('image', buffer, { 
         filename: filename,
-        contentType: 'image/jpeg' // Fallback, we could look this up in files collection if needed
+        contentType: 'image/jpeg'
       });
 
       // 3. Send to AI model
